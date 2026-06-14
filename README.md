@@ -1,23 +1,20 @@
-# Detector de Gás com ESP32-S3 Zero, MQ-9, LED e Buzzer
+# Detector de Gás com ESP32, MQ-9, Buzzer e MQTT
 
-Projeto simples de detector de gás utilizando um **ESP32-S3 Zero**, um sensor **MQ-9**, um **LED** e um **buzzer**.
+Projeto de monitoramento de gás com **ESP32**, sensor **MQ-9**, **buzzer** e publicação de dados via **MQTT**.
 
-O sistema lê o valor analógico do sensor MQ-9 e aciona alertas visuais e sonoros quando o nível de gás ultrapassa os limites configurados no código.
+O sketch em [GasShield/gas_shield_script.ino](GasShield/gas_shield_script.ino) lê o valor analógico do MQ-9, compara com um limite configurado no código e envia o estado atual para um broker MQTT.
 
 ---
 
 ## Componentes utilizados
 
-* ESP32-S3 Zero
+* ESP32
 * Sensor de gás MQ-9
-* LED
-* Resistor de 220Ω para o LED
+* Transistor BC547
 * Buzzer ativo
-* Fonte Hi-Link 5V 0.6A
-* Resistores para divisor de tensão:
-
-  * 10kΩ
-  * 20kΩ
+* Resistores para divisor de tensão no AOUT do MQ-9
+* Fonte Hi-Link HLK-5M05
+* Resistores de base e polarização para o BC547
 
 ---
 
@@ -25,47 +22,85 @@ O sistema lê o valor analógico do sensor MQ-9 e aciona alertas visuais e sonor
 
 O projeto monitora a presença de gás no ambiente usando o sensor **MQ-9**.
 
-O MQ-9 é usado principalmente para detectar:
+Quando a leitura analógica ultrapassa o limite definido, o ESP32:
 
-* Monóxido de carbono, CO
-* GLP
-* Metano
-* Gases combustíveis em geral
+* aciona o buzzer em pulsos curtos
+* publica o valor lido e o estado do alarme via MQTT
 
-Quando a leitura do sensor passa de um valor definido no código, o ESP32 aciona:
+---
 
-* LED piscando
-* Buzzer emitindo som
+## Configuração do sketch
+
+### Identificação do dispositivo
+
+```cpp
+const char* DEVICE_ID = "esp32-sala";
+```
+
+Esse identificador é usado na montagem do tópico MQTT e no payload enviado.
+
+### Wi-Fi
+
+```cpp
+const char* WIFI_SSID = "Brendinha";
+const char* WIFI_PASSWORD = "12345678";
+```
+
+Essas credenciais estão definidas diretamente no código. Recomenda-se trocá-las antes de usar em outro ambiente.
+
+### MQTT
+
+```cpp
+const char* MQTT_BROKER = "broker.hivemq.com";
+const int MQTT_PORT = 1883;
+```
+
+O tópico é montado automaticamente como:
+
+```text
+ianes/gasshield/dispositivos/esp32-sala/status
+```
+
+### Sensor e alarme
+
+```cpp
+int LIMITE_GAS = 450;
+unsigned long TEMPO_AQUECIMENTO = 30000;
+unsigned long intervaloEnvio = 2000;
+```
+
+* `LIMITE_GAS`: valor acima do qual o alarme é acionado
+* `TEMPO_AQUECIMENTO`: tempo de espera inicial do MQ-9, em milissegundos
+* `intervaloEnvio`: intervalo entre publicações MQTT, em milissegundos
 
 ---
 
 ## Ligações
 
-### MQ-9 com ESP32-S3 Zero
+### MQ-9 com ESP32
 
-| MQ-9 | ESP32-S3 Zero                |
-| ---- | ---------------------------- |
-| VCC  | 5V                           |
-| GND  | GND                          |
-| AOUT | GPIO 4 via divisor de tensão |
-
----
-
-### LED
-
-| LED              | ESP32-S3 Zero            |
-| ---------------- | ------------------------ |
-| Anodo, positivo  | GPIO 5 via resistor 220Ω |
-| Catodo, negativo | GND                      |
-
----
+| MQ-9 | ESP32 |
+| ---- | ----- |
+| VCC  | 5V    |
+| GND  | GND   |
+| AOUT | GPIO 1 via divisor de tensão |
 
 ### Buzzer ativo
 
-| Buzzer   | ESP32-S3 Zero |
-| -------- | ------------- |
-| Positivo | GPIO 6        |
-| Negativo | GND           |
+| Buzzer   | ESP32 |
+| -------- | ----- |
+| Positivo | Alimentado pela saída comutada pelo BC547 |
+| Negativo | GND |
+
+### Transistor BC547
+
+O BC547 é usado como chave para o buzzer, aliviando a corrente exigida do pino do ESP32.
+
+Uma ligação típica é:
+
+* coletor no buzzer
+* emissor no GND
+* base no GPIO 12 por meio de um resistor
 
 ---
 
@@ -73,216 +108,73 @@ Quando a leitura do sensor passa de um valor definido no código, o ESP32 aciona
 
 O ESP32 trabalha com entradas analógicas de até **3.3V**.
 
-Como o MQ-9 está alimentado com **5V**, a saída analógica `AOUT` pode chegar perto de **5V**, o que pode danificar o ESP32.
+Como o MQ-9 está alimentado com **5V**, a saída analógica `AOUT` pode ultrapassar o valor seguro para o ESP32.
 
-Por isso, use um divisor de tensão antes de ligar o `AOUT` ao GPIO 4.
+Por isso, use um divisor de tensão antes de ligar o `AOUT` ao GPIO 1.
 
-### Divisor de tensão recomendado
+Exemplo de divisor:
 
 ```text
-MQ-9 AOUT ---- resistor 10kΩ ---- GPIO 4
+MQ-9 AOUT ---- resistor 10kΩ ---- GPIO 1
                   |
                resistor 20kΩ
                   |
                  GND
 ```
 
-Essa ligação reduz a tensão de saída para um nível mais seguro para o ESP32.
-
----
-
-## Código usado
-
-```cpp
-#define PIN_MQ9     4
-#define PIN_LED     5
-#define PIN_BUZZER  6
-
-#define LIMIAR_BAIXO  1600
-#define LIMIAR_ALTO   2300
-
-#define TEMPO_AQUECIMENTO_MS 30000
-
-void setup() {
-  Serial.begin(115200);
-
-  pinMode(PIN_LED, OUTPUT);
-  pinMode(PIN_BUZZER, OUTPUT);
-
-  digitalWrite(PIN_LED, LOW);
-  digitalWrite(PIN_BUZZER, LOW);
-
-  Serial.println("Detector de gas MQ-9 iniciado.");
-  Serial.println("Aquecendo sensor...");
-  delay(TEMPO_AQUECIMENTO_MS);
-  Serial.println("Sensor pronto.");
-}
-
-void loop() {
-  int valorGas = analogRead(PIN_MQ9);
-
-  Serial.print("MQ-9: ");
-  Serial.println(valorGas);
-
-  if (valorGas >= LIMIAR_ALTO) {
-    alertaForte();
-  } 
-  else if (valorGas >= LIMIAR_BAIXO) {
-    alertaFraco();
-  } 
-  else {
-    estadoNormal();
-  }
-
-  delay(300);
-}
-
-void estadoNormal() {
-  digitalWrite(PIN_LED, LOW);
-  digitalWrite(PIN_BUZZER, LOW);
-}
-
-void alertaFraco() {
-  digitalWrite(PIN_LED, HIGH);
-  digitalWrite(PIN_BUZZER, HIGH);
-  delay(100);
-
-  digitalWrite(PIN_LED, LOW);
-  digitalWrite(PIN_BUZZER, LOW);
-  delay(700);
-}
-
-void alertaForte() {
-  digitalWrite(PIN_LED, HIGH);
-  digitalWrite(PIN_BUZZER, HIGH);
-  delay(150);
-
-  digitalWrite(PIN_LED, LOW);
-  digitalWrite(PIN_BUZZER, LOW);
-  delay(150);
-}
-```
-
----
-
-## Explicação dos pinos
-
-```cpp
-#define PIN_MQ9 4
-```
-
-Define o pino analógico usado para ler o sensor MQ-9.
-
-```cpp
-#define PIN_LED 5
-```
-
-Define o pino usado para controlar o LED.
-
-```cpp
-#define PIN_BUZZER 6
-```
-
-Define o pino usado para controlar o buzzer.
-
----
-
-## Limiares de detecção
-
-```cpp
-#define LIMIAR_BAIXO 1600
-#define LIMIAR_ALTO 2300
-```
-
-Esses valores definem quando o sistema deve entrar em alerta.
-
-* Abaixo de `1600`: estado normal
-* Entre `1600` e `2299`: alerta fraco
-* A partir de `2300`: alerta forte
-
-Esses valores devem ser ajustados conforme o ambiente e o sensor utilizado.
-
----
-
-## Tempo de aquecimento
-
-```cpp
-#define TEMPO_AQUECIMENTO_MS 30000
-```
-
-O MQ-9 precisa de um tempo inicial de aquecimento antes de fornecer leituras mais estáveis.
-
-Neste projeto foi usado um tempo de **30 segundos**.
-
-Para uso mais confiável, o ideal é deixar o sensor aquecer por alguns minutos.
-
 ---
 
 ## Funcionamento
 
-1. O ESP32 inicia o sistema.
-2. O sensor MQ-9 aquece por 30 segundos.
-3. O ESP32 começa a ler o valor analógico do sensor.
-4. O valor é exibido no Monitor Serial.
-5. Se o valor estiver abaixo do limite baixo, nada é acionado.
-6. Se passar do limite baixo, o LED e o buzzer piscam lentamente.
-7. Se passar do limite alto, o LED e o buzzer piscam rapidamente.
+1. O ESP32 inicia o sistema e configura o buzzer.
+2. O código aguarda o tempo de aquecimento do MQ-9.
+3. O Wi-Fi é conectado.
+4. O cliente MQTT é configurado e conectado ao broker.
+5. O loop lê o valor analógico do MQ-9.
+6. Se o valor for maior ou igual ao limite, o buzzer é acionado em pulsos curtos.
+7. A cada 2 segundos, o ESP32 publica um JSON com `device_id`, `mq9` e `alarme`.
 
 ---
 
-## Como calibrar
+## Payload MQTT
 
-1. Ligue o circuito em um ambiente limpo.
-2. Abra o Monitor Serial da Arduino IDE.
-3. Configure a velocidade para `115200`.
-4. Observe o valor médio do MQ-9 em repouso.
-5. Defina o `LIMIAR_BAIXO` um pouco acima do valor normal.
-6. Defina o `LIMIAR_ALTO` bem acima do valor normal.
+O payload enviado segue este formato:
 
-Exemplo:
-
-Se o sensor em ambiente limpo fica perto de `1000`, você pode usar:
-
-```cpp
-#define LIMIAR_BAIXO 1500
-#define LIMIAR_ALTO 2200
+```json
+{"device_id":"esp32-sala","mq9":1234,"alarme":true}
 ```
 
-Se o sensor em ambiente limpo fica perto de `1800`, você pode usar:
+Campos enviados:
 
-```cpp
-#define LIMIAR_BAIXO 2200
-#define LIMIAR_ALTO 3000
-```
+* `device_id`: identificação do dispositivo
+* `mq9`: leitura atual do sensor
+* `alarme`: `true` ou `false`
 
 ---
 
 ## Monitor Serial
 
-Durante a execução, o Monitor Serial mostra leituras como:
+Durante a execução, o Monitor Serial mostra mensagens como:
 
 ```text
-Detector de gas MQ-9 iniciado.
-Aquecendo sensor...
-Sensor pronto.
-MQ-9: 1023
-MQ-9: 1050
-MQ-9: 1680
-MQ-9: 2350
+Sistema iniciado.
+Device ID: esp32-sala
+Topico MQTT: ianes/gasshield/dispositivos/esp32-sala/status
+Aquecendo MQ-9...
+MQ-9 pronto.
+Wi-Fi conectado.
+MQTT conectado.
+Device: esp32-sala | MQ-9: 420 | Alarme: false
+Enviado MQTT em ianes/gasshield/dispositivos/esp32-sala/status: {"device_id":"esp32-sala","mq9":420,"alarme":false}
 ```
-
-Esses valores ajudam a ajustar os limites de alerta.
 
 ---
 
 ## Observações importantes
 
-Este projeto não substitui um detector de gás certificado.
+Este projeto não substitui um detector de gás certificado pois o MQ-9 é sensível a variações de temperatura, umidade, alimentação e tempo de aquecimento.
 
-Para uso real de segurança, é necessário utilizar equipamento certificado e adequado à norma aplicável.
+A fonte Hi-Link HLK-5M05 fornece a alimentação de 5V do sistema, mas a instalação na rede elétrica deve ser feita com isolamento e cuidado adequados.
 
-O MQ-9 é sensível a variações de temperatura, umidade, alimentação e tempo de aquecimento.
+Se o buzzer estiver sendo acionado por transistor, o resistor de base do BC547 precisa ser dimensionado conforme a corrente do buzzer e o nível lógico do ESP32.
 
-A fonte Hi-Link 5V 0.6A pode alimentar o circuito, mas a instalação em rede elétrica deve ser feita com cuidado e isolamento adequado.
-
----
