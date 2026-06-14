@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { useGasStore } from '../store/gasStore';
 import { AlertTriangle, Info, AlertCircle, CheckCircle, Loader2 } from 'lucide-react';
 
