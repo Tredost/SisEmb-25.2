@@ -7,6 +7,11 @@ O projeto é dividido em três camadas principais:
 2. **Backend (Gateway/API):** Servidor Node.js para gerenciar persistência, telemetria MQTT e Socket.io.
 3. **Frontend (Web App):** Dashboard dinâmico para os síndicos e administradores desenvolvido em React.
 
+### Demonstração do Sistema ao Vivo
+Veja a simulação orgânica, alertas em tempo real e navegação nas telas do painel de administração:
+
+![Demonstração Completa do Sistema](gasshield_demo.webp)
+
 ---
 
 ## 🏗 Arquitetura do Sistema Web
