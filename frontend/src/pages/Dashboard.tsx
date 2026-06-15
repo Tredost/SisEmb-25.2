@@ -1,11 +1,11 @@
-import React, { useState, useMemo } from 'react';
+import { useState, useMemo, type ReactNode } from 'react';
 import { useGasStore, type UnidadeData } from '../store/gasStore';
 import { Building2, Battery, Wifi, User, Phone, Cpu, X, Activity, Loader2, ChevronDown } from 'lucide-react';
 
 export default function Dashboard() {
   const { locais, unidades, eventos, carregando } = useGasStore();
   const [localSelecionado, setLocalSelecionado] = useState<number | null>(null);
-  const [unidadeDetalhe, setUnidadeDetalhe] = useState<UnidadeData | null>(null);
+  const [idUnidadeDetalhe, setIdUnidadeDetalhe] = useState<number | null>(null);
 
   // Seleciona o primeiro local quando carrega
   const idAtivo = localSelecionado ?? locais[0]?.id ?? null;
@@ -15,6 +15,12 @@ export default function Dashboard() {
     () => unidades.filter(u => u.id_local === idAtivo),
     [unidades, idAtivo]
   );
+
+  // Busca a unidade do detalhe SEMPRE a partir do state mais recente
+  // Isso garante que o modal atualiza em tempo real quando o simulador altera valores
+  const unidadeDetalhe = idUnidadeDetalhe !== null
+    ? unidades.find(u => u.id === idUnidadeDetalhe) ?? null
+    : null;
 
   // Agrupar por andar/bloco
   const agrupamento = useMemo(() => {
@@ -100,7 +106,7 @@ export default function Dashboard() {
               {units.map(unit => (
                 <button
                   key={unit.id}
-                  onClick={() => setUnidadeDetalhe(unit)}
+                  onClick={() => setIdUnidadeDetalhe(unit.id)}
                   className={
                     'relative p-3 rounded-lg border-2 flex flex-col items-center justify-center transition-all duration-200 hover:scale-[1.03] cursor-pointer ' +
                     estiloStatus(unit.status)
@@ -149,9 +155,9 @@ export default function Dashboard() {
         </div>
       </aside>
 
-      {/* ── Modal Detalhe ──────────────────────── */}
+      {/* ── Modal Detalhe (dados em tempo real) ──── */}
       {unidadeDetalhe && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-50" onClick={() => setUnidadeDetalhe(null)}>
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-50" onClick={() => setIdUnidadeDetalhe(null)}>
           <div className="bg-card w-full max-w-md rounded-2xl shadow-2xl overflow-hidden fade-in" onClick={e => e.stopPropagation()}>
             
             {/* Banner de status */}
@@ -168,12 +174,12 @@ export default function Dashboard() {
 
               {/* Gauges */}
               <div className="grid grid-cols-2 gap-4">
-                <div className="text-center p-4 bg-muted/40 rounded-xl border">
+                <div className={'text-center p-4 rounded-xl border transition-colors duration-300 ' + gaugeEstilo(unidadeDetalhe.status)}>
                   <span className="text-3xl font-mono font-bold">{unidadeDetalhe.glp.toFixed(1)}</span>
                   <span className="text-sm ml-1">% LEL</span>
                   <p className="text-xs text-muted-foreground mt-1">GLP</p>
                 </div>
-                <div className="text-center p-4 bg-muted/40 rounded-xl border">
+                <div className={'text-center p-4 rounded-xl border transition-colors duration-300 ' + gaugeEstilo(unidadeDetalhe.status)}>
                   <span className="text-3xl font-mono font-bold">{unidadeDetalhe.co.toFixed(0)}</span>
                   <span className="text-sm ml-1">ppm</span>
                   <p className="text-xs text-muted-foreground mt-1">CO</p>
@@ -191,7 +197,7 @@ export default function Dashboard() {
                 </div>
               </div>
 
-              <button onClick={() => setUnidadeDetalhe(null)} className="w-full bg-primary text-primary-foreground py-2.5 rounded-lg font-semibold hover:opacity-90 transition-opacity flex items-center justify-center gap-2">
+              <button onClick={() => setIdUnidadeDetalhe(null)} className="w-full bg-primary text-primary-foreground py-2.5 rounded-lg font-semibold hover:opacity-90 transition-opacity flex items-center justify-center gap-2">
                 <X className="w-4 h-4" /> Fechar
               </button>
             </div>
@@ -212,7 +218,7 @@ function KpiCard({ label, valor, cor }: { label: string; valor: number; cor: str
   );
 }
 
-function InfoRow({ icon, label, valor }: { icon: React.ReactNode; label: string; valor: string }) {
+function InfoRow({ icon, label, valor }: { icon: ReactNode; label: string; valor: string }) {
   return (
     <div className="flex items-center gap-2 text-muted-foreground">
       {icon}
@@ -228,6 +234,15 @@ function estiloStatus(s: string) {
     case 'warning': return 'bg-amber-50 border-amber-400 text-amber-900';
     case 'critical': return 'bg-red-50 border-red-500 text-red-900 pulse-critical';
     default: return 'bg-gray-100 border-gray-300 text-gray-500';
+  }
+}
+
+function gaugeEstilo(s: string) {
+  switch (s) {
+    case 'safe': return 'bg-muted/40';
+    case 'warning': return 'bg-amber-50 border-amber-300';
+    case 'critical': return 'bg-red-50 border-red-400 pulse-critical';
+    default: return 'bg-muted/40';
   }
 }
 
