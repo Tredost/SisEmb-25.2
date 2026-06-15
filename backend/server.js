@@ -1,6 +1,8 @@
 const express = require('express');
 const sqlite3 = require('sqlite3').verbose();
 const http = require('http');
+const dns = require('dns');
+const net = require('net');
 const { Server } = require('socket.io');
 const mqtt = require('mqtt');
 const cors = require('cors');
@@ -10,6 +12,7 @@ const server = http.createServer(app);
 const io = new Server(server, {
   cors: { origin: '*' }
 });
+const LOCAL_PADRAO = { nome: 'Edifício', tipo: 'Edifício', endereco: '' };
 
 app.use(cors());
 app.use(express.json());
@@ -47,7 +50,7 @@ function inicializarBancoDeDados() {
     )
   `, () => {
     // Insere configuração padrão se não existir
-    db.run(`INSERT OR IGNORE INTO configuracoes (id, broker_url, broker_porta, topico, edificio_real, unidade_real) 
+    db.run(`INSERT OR IGNORE INTO configuracoes (id, broker_url, broker_porta, topico, edificio_real, unidade_real)
             VALUES (1, 'broker.hivemq.com', 1883, 'ianes/gasshield/dispositivos/+/status', 'aurora', '302')`, () => {
       // Iniciar MQTT com a configuração salva
       iniciarClienteMQTT();
@@ -61,7 +64,7 @@ function inicializarBancoDeDados() {
       tipo TEXT,
       endereco TEXT
     )
-  `);
+  `, garantirLocalPadrao);
 
   db.run(`
     CREATE TABLE IF NOT EXISTS unidades (
@@ -72,11 +75,47 @@ function inicializarBancoDeDados() {
       nome_morador TEXT,
       contato TEXT,
       dispositivo_instalado TEXT,
+      device_id TEXT,
       bateria INTEGER DEFAULT 100,
       sinal INTEGER DEFAULT 100,
       FOREIGN KEY(id_local) REFERENCES locais(id)
     )
   `);
+
+  db.all('PRAGMA table_info(unidades)', (err, columns) => {
+    if (err) {
+      console.error('Erro ao inspecionar tabela unidades:', err.message);
+      return;
+    }
+
+    const temDeviceId = columns.some(col => col.name === 'device_id');
+    if (!temDeviceId) {
+      db.run('ALTER TABLE unidades ADD COLUMN device_id TEXT', (alterErr) => {
+        if (alterErr) {
+          console.error('Erro ao adicionar coluna device_id:', alterErr.message);
+        }
+      });
+    }
+  });
+}
+
+function garantirLocalPadrao() {
+  db.get('SELECT id FROM locais ORDER BY id ASC LIMIT 1', (err, row) => {
+    if (err) {
+      console.error('Erro ao verificar local padrão:', err.message);
+      return;
+    }
+
+    if (!row) {
+      db.run(
+        'INSERT INTO locais (nome, tipo, endereco) VALUES (?, ?, ?)',
+        [LOCAL_PADRAO.nome, LOCAL_PADRAO.tipo, LOCAL_PADRAO.endereco],
+        (insertErr) => {
+          if (insertErr) console.error('Erro ao criar local padrão:', insertErr.message);
+        }
+      );
+    }
+  });
 }
 
 // Cliente MQTT
@@ -90,10 +129,26 @@ function iniciarClienteMQTT() {
       clienteMqtt.end(); // Encerra conexão antiga se houver
     }
 
-    const brokerUrl = `mqtt://${config.broker_url}:${config.broker_porta}`;
-    console.log(`Conectando ao MQTT: ${brokerUrl}`);
-    
-    clienteMqtt = mqtt.connect(brokerUrl);
+    conectarBrokerMQTT(config);
+  });
+}
+
+function conectarBrokerMQTT(config) {
+  const hostConfigurado = String(config.broker_url || '').replace(/^mqtt:\/\//, '');
+
+  resolverHostMQTT(hostConfigurado, (err, hostConexao) => {
+    if (err) {
+      console.error('Erro ao resolver IPv4 do broker MQTT:', err.message);
+      return;
+    }
+
+    const brokerUrl = `mqtt://${hostConexao}:${config.broker_porta}`;
+    const detalheHost = hostConexao === hostConfigurado ? '' : ` via IPv4 ${hostConexao}`;
+    console.log(`Conectando ao MQTT: mqtt://${hostConfigurado}:${config.broker_porta}${detalheHost}`);
+
+    clienteMqtt = mqtt.connect(brokerUrl, {
+      reconnectPeriod: 5000,
+    });
 
     clienteMqtt.on('connect', () => {
       console.log('Conectado ao Broker MQTT com sucesso!');
@@ -110,7 +165,7 @@ function iniciarClienteMQTT() {
       try {
         const payload = JSON.parse(message.toString());
         // Payload esperado: {"device_id": "esp32-sala", "mq9": 1830, "alarme": true}
-        
+
         // Regra de conversão: MQ-9 vai de 0 a 4095
         // O PRD trabalha com LEL (0 a 100%). Vamos mapear os limites do MQ-9 para LEL
         // Se limite configurado no ESP32 é 450, vamos assumir que 450 é 10% LEL (alarme crítico)
@@ -137,6 +192,19 @@ function iniciarClienteMQTT() {
   });
 }
 
+function resolverHostMQTT(host, callback) {
+  if (net.isIP(host) === 4) {
+    callback(null, host);
+    return;
+  }
+
+  dns.resolve4(host, (err, addresses) => {
+    if (err) return callback(err);
+    if (!addresses.length) return callback(new Error('Nenhum endereço IPv4 encontrado'));
+    callback(null, addresses[0]);
+  });
+}
+
 // --- ROTAS DA API ---
 
 app.post('/api/login', (req, res) => {
@@ -160,17 +228,17 @@ app.get('/api/config', (req, res) => {
 
 app.post('/api/config', (req, res) => {
   const { broker_url, broker_porta, topico, edificio_real, unidade_real } = req.body;
-  
+
   db.run(`
-    UPDATE configuracoes 
+    UPDATE configuracoes
     SET broker_url = ?, broker_porta = ?, topico = ?, edificio_real = ?, unidade_real = ?
     WHERE id = 1
   `, [broker_url, broker_porta, topico, edificio_real, unidade_real], function(err) {
     if (err) return res.status(500).json({ erro: 'Erro ao salvar configurações' });
-    
+
     // Reinicia o cliente MQTT com as novas configurações
     iniciarClienteMQTT();
-    
+
     res.json({ sucesso: true, mensagem: 'Configurações atualizadas e MQTT reiniciado.' });
   });
 });
@@ -216,13 +284,13 @@ app.get('/api/unidades/local/:id_local', (req, res) => {
 });
 
 app.post('/api/unidades', (req, res) => {
-  const { id_local, identificacao, andar_ou_bloco, nome_morador, contato, dispositivo_instalado } = req.body;
-  db.run(`INSERT INTO unidades (id_local, identificacao, andar_ou_bloco, nome_morador, contato, dispositivo_instalado)
-          VALUES (?, ?, ?, ?, ?, ?)`, 
-    [id_local, identificacao, andar_ou_bloco, nome_morador, contato, dispositivo_instalado], 
+  const { id_local, identificacao, andar_ou_bloco, nome_morador, contato, dispositivo_instalado, device_id } = req.body;
+  db.run(`INSERT INTO unidades (id_local, identificacao, andar_ou_bloco, nome_morador, contato, dispositivo_instalado, device_id)
+          VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    [id_local, identificacao, andar_ou_bloco, nome_morador, contato, dispositivo_instalado, device_id || null],
     function(err) {
       if (err) return res.status(500).json({ erro: 'Erro ao salvar unidade' });
-      res.json({ id: this.lastID, id_local, identificacao, andar_ou_bloco, nome_morador, contato, dispositivo_instalado });
+      res.json({ id: this.lastID, id_local, identificacao, andar_ou_bloco, nome_morador, contato, dispositivo_instalado, device_id: device_id || null });
     });
 });
 
@@ -230,6 +298,14 @@ app.delete('/api/unidades/:id', (req, res) => {
   db.run('DELETE FROM unidades WHERE id = ?', req.params.id, function(err) {
     if (err) return res.status(500).json({ erro: 'Erro ao deletar unidade' });
     res.json({ sucesso: true });
+  });
+});
+
+app.put('/api/unidades/:id/device-id', (req, res) => {
+  const { device_id } = req.body;
+  db.run('UPDATE unidades SET device_id = ? WHERE id = ?', [device_id || null, req.params.id], function(err) {
+    if (err) return res.status(500).json({ erro: 'Erro ao atualizar device_id' });
+    res.json({ sucesso: true, device_id: device_id || null });
   });
 });
 

@@ -61,7 +61,7 @@ export default function Configuracoes() {
       <div className="bg-card rounded-xl shadow-sm border overflow-hidden">
         <div className="px-6 py-4 border-b bg-muted/30">
           <h1 className="text-xl font-bold">Configuração do Broker MQTT</h1>
-          <p className="text-sm text-muted-foreground mt-1">Defina o broker, tópico e qual sensor físico será mapeado no painel.</p>
+          <p className="text-sm text-muted-foreground mt-1">Defina o broker e o tópico usado para receber as leituras dos dispositivos.</p>
         </div>
 
         <form onSubmit={handleSave} className="p-6 space-y-5">
@@ -71,17 +71,6 @@ export default function Configuracoes() {
           </div>
 
           <Campo label="Tópico de Inscrição" name="topico" value={config.topico} onChange={handleChange} placeholder="ianes/gasshield/dispositivos/+/status" />
-
-          <div className="pt-4 border-t space-y-4">
-            <div>
-              <h3 className="font-semibold text-sm">Mapeamento de Sensor Real</h3>
-              <p className="text-xs text-muted-foreground mt-1">Defina qual unidade no Dashboard receberá os dados reais do ESP32. As demais serão simuladas.</p>
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <Campo label="Nome do Local (parte)" name="edificio_real" value={config.edificio_real} onChange={handleChange} placeholder="Aurora" />
-              <Campo label="Nº do Apto/Casa" name="unidade_real" value={config.unidade_real} onChange={handleChange} placeholder="302" />
-            </div>
-          </div>
 
           <button
             type="submit"

@@ -1,19 +1,15 @@
 import { BrowserRouter, Routes, Route, NavLink } from 'react-router-dom';
 import { GasStoreProvider } from './store/gasStore';
 import { Toaster } from 'sonner';
-import { Flame, Building2, Bell, Settings, MapPin } from 'lucide-react';
+import { Flame, Home, Settings } from 'lucide-react';
 import Dashboard from './pages/Dashboard';
-import Edificios from './pages/Edificios';
-import Alertas from './pages/Alertas';
 import Configuracoes from './pages/Configuracoes';
 import GestaoLocais from './pages/GestaoLocais';
 
 const itensMenu = [
   { to: '/', label: 'Visão Geral', icon: Flame },
-  { to: '/edificios', label: 'Edifícios', icon: Building2 },
-  { to: '/alertas', label: 'Alertas', icon: Bell },
+  { to: '/unidades', label: 'Gestão de unidades', icon: Home },
   { to: '/config', label: 'Configuração MQTT', icon: Settings },
-  { to: '/cadastros', label: 'Gestão de Locais', icon: MapPin },
 ];
 
 function App() {
@@ -58,10 +54,8 @@ function App() {
           <main className="flex-1 max-w-[1440px] w-full mx-auto p-6">
             <Routes>
               <Route path="/" element={<Dashboard />} />
-              <Route path="/edificios" element={<Edificios />} />
-              <Route path="/alertas" element={<Alertas />} />
+              <Route path="/unidades" element={<GestaoLocais />} />
               <Route path="/config" element={<Configuracoes />} />
-              <Route path="/cadastros" element={<GestaoLocais />} />
             </Routes>
           </main>
 

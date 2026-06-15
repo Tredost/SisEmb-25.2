@@ -11,10 +11,9 @@ export default function Edificios() {
       return {
         ...local,
         total: units.length,
-        seguros: units.filter(u => u.status === 'safe').length,
-        alertas: units.filter(u => u.status === 'warning').length,
-        criticos: units.filter(u => u.status === 'critical').length,
-        statusAgregado: units.some(u => u.status === 'critical') ? 'critical' : units.some(u => u.status === 'warning') ? 'warning' : 'safe',
+        normais: units.filter(u => u.status === 'safe').length,
+        alarmadas: units.filter(u => u.status === 'alarm').length,
+        statusAgregado: units.some(u => u.status === 'alarm') ? 'alarm' : 'safe',
       };
     });
   }, [locais, unidades]);
@@ -26,8 +25,7 @@ export default function Edificios() {
   };
 
   const barraCor = (s: string) => {
-    if (s === 'critical') return 'bg-red-500';
-    if (s === 'warning') return 'bg-amber-500';
+    if (s === 'alarm') return 'bg-red-500';
     return 'bg-green-500';
   };
 
@@ -62,16 +60,16 @@ export default function Edificios() {
 
               <div className="grid grid-cols-3 gap-2 text-center text-sm border-t pt-3">
                 <div>
-                  <span className="block text-lg font-bold text-green-600 font-mono">{local.seguros}</span>
-                  <span className="text-[11px] text-muted-foreground">Seguros</span>
+                  <span className="block text-lg font-bold text-green-600 font-mono">{local.normais}</span>
+                  <span className="text-[11px] text-muted-foreground">Normais</span>
                 </div>
                 <div className="border-l border-r">
-                  <span className="block text-lg font-bold text-amber-500 font-mono">{local.alertas}</span>
-                  <span className="text-[11px] text-muted-foreground">Alertas</span>
+                  <span className="block text-lg font-bold text-red-600 font-mono">{local.alarmadas}</span>
+                  <span className="text-[11px] text-muted-foreground">Alarmadas</span>
                 </div>
                 <div>
-                  <span className="block text-lg font-bold text-red-600 font-mono">{local.criticos}</span>
-                  <span className="text-[11px] text-muted-foreground">Perigo</span>
+                  <span className="block text-lg font-bold text-slate-600 font-mono">{local.total}</span>
+                  <span className="text-[11px] text-muted-foreground">Total</span>
                 </div>
               </div>
             </div>
